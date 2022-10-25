@@ -1,0 +1,7 @@
+/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-Debug/CMakeFiles/midi-to-joy.dir
+/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-Debug/CMakeFiles/edit_cache.dir
+/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-Debug/CMakeFiles/rebuild_cache.dir
+/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-Debug/CMakeFiles/list_install_components.dir
+/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-Debug/CMakeFiles/install.dir
+/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-Debug/CMakeFiles/install/local.dir
+/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-Debug/CMakeFiles/install/strip.dir

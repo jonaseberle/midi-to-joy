@@ -1,0 +1,1 @@
+/usr/bin/gcc -O3 -DNDEBUG "CMakeFiles/midi-to-joy.dir/main.c.o" -o midi-to-joy 
