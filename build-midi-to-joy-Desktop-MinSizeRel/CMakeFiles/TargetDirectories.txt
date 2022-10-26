@@ -1,7 +1,0 @@
-/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-MinSizeRel/CMakeFiles/midi-to-joy.dir
-/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-MinSizeRel/CMakeFiles/edit_cache.dir
-/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-MinSizeRel/CMakeFiles/rebuild_cache.dir
-/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-MinSizeRel/CMakeFiles/list_install_components.dir
-/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-MinSizeRel/CMakeFiles/install.dir
-/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-MinSizeRel/CMakeFiles/install/local.dir
-/home/jonas/src/github.com/jonaseberle/midi-to-joy/build-midi-to-joy-Desktop-MinSizeRel/CMakeFiles/install/strip.dir

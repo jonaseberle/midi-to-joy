@@ -1,240 +1,286 @@
 #include <fcntl.h>
+#include <linux/input.h>
 #include <linux/uinput.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#define msleep(ms) usleep((ms)*1000)
+#define msleep(ms) usleep((ms) * 1000)
 
-// miditest3.c
-// midi to uinput button test mapping notes to buttons, and mod/pitch/volume to
-// axes by Golden Child just maps the low register of the keyboard into button
-// pressess using examples from
 //
 // https://forums.bannister.org/ubbthreads.php?ubb=showflat&Number=118786
+//
 // https://gist.github.com/matthewaveryusa/a721aad80ae89a5c69f7c964fa20fec1
 // https://github.com/GrantEdwards/uinput-joystick-demo
 // https://www.kernel.org/doc/html/v4.12/input/uinput.html
 // https://blog.marekkraus.sk/c/linuxs-uinput-usage-tutorial-virtual-gamepad/
+//
 
-static void setup_abs(int fd, unsigned short chan, int min, int max);
+static int fd, midi_fd;
 
-int main(int argc, char *argv[]) {
-  if (argc != 2) {
-    fprintf(stderr, "Usage: midi-to-joy </dev/midiX>");
-    return EXIT_FAILURE;
-  }
+static void setupAbs(int fd, unsigned short chan, int min, int max);
+static void sendEvent(struct input_event input_event);
 
-  int midi_fd = open(argv[1], O_RDONLY | O_NONBLOCK);
+typedef struct {
+    int in;
+    int out;
+} map;
 
-  if (midi_fd < 0) {
-    perror("open /dev/midiX");
-    return EXIT_FAILURE;
-  }
+const int btnCodes[] = {
+//    BTN_DPAD_UP,
+//    BTN_DPAD_DOWN,
+//    BTN_DPAD_LEFT,
+//    BTN_DPAD_RIGHT,
+    BTN_0,
+    BTN_1,
+    BTN_2,
+    BTN_3,
+    BTN_4,
+    BTN_5,
+    BTN_6,
+    BTN_7,
+    BTN_8,
+    BTN_9,
+    BTN_LEFT,
+    BTN_DEAD,
+    BTN_SOUTH,
+    BTN_EAST,
+    BTN_C,
+    BTN_NORTH,
+    BTN_WEST,
+    BTN_Z,
+    BTN_TL,
+    BTN_TR,
+    BTN_TL2,
+    BTN_TR2,
+    BTN_SELECT,
+    BTN_START,
+    BTN_MODE,
+    BTN_THUMBL,
+    BTN_THUMBR,
+    BTN_RIGHT,
+    BTN_MIDDLE,
+    BTN_SIDE,
+    BTN_EXTRA,
+    BTN_FORWARD,
+    BTN_BACK,
+    BTN_TASK,
+    BTN_TRIGGER,
+    BTN_THUMB,
+    BTN_THUMB2,
+    BTN_TOP,
+    BTN_TOP2,
+    BTN_PINKIE,
+    BTN_BASE,
+    BTN_BASE2,
+    BTN_BASE3,
+    BTN_BASE4,
+    BTN_BASE5,
+    BTN_BASE6,
+    BTN_GEAR_DOWN,
+    BTN_GEAR_UP
+    //    BTN_TOOL_PEN,
+    //    BTN_TOOL_RUBBER,
+    //    BTN_TOOL_BRUSH,
+    //    BTN_TOOL_PENCIL,
+    //    BTN_TOOL_AIRBRUSH,
+    //    BTN_TOOL_FINGER,
+    //    BTN_TOOL_MOUSE,
+    //    BTN_TOOL_LENS,
+    //    BTN_STYLUS3,
+    //    BTN_TOUCH,
+    //    BTN_STYLUS,
+    //    BTN_STYLUS2,
+    //    BTN_TOOL_DOUBLETAP,
+    //    BTN_TOOL_TRIPLETAP,
+};
 
-  // sleep(1); // wait for a second
-  int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-
-  if (fd < 0) {
-    perror("open /dev/uinput");
-    return EXIT_FAILURE;
-  }
-
-  ioctl(fd, UI_SET_EVBIT, EV_KEY); // enable button/key handling
-
-  // event codes from linux/input-event-codes.h
-
-  int translatetable[] = {
-      0x29,
-      BTN_0,
-      0xd,
-      BTN_1,
-      0xe,
-      BTN_2,
-      0xf,
-      BTN_3,
-      0x10,
-      BTN_4,
-      0x11,
-      BTN_5,
-      0x12,
-      BTN_6,
-      0x13,
-      BTN_7,
-      0x14,
-      BTN_8,
-      0x15,
-      BTN_9,
-      0x16,
-      BTN_TRIGGER_HAPPY1,
-      0x17,
-      BTN_TRIGGER_HAPPY2,
-      0x18,
-      BTN_DPAD_UP,
-      0x19,
-      BTN_DPAD_LEFT,
-      0x1a,
-      BTN_DPAD_DOWN,
-      0x1b,
-      BTN_DPAD_RIGHT,
-      0x1c,
-      0x2ff,
-      0x1d,
-      0x280, // 0x300 doesn't work
-      0x1e,
-      0x2F0, // 2F0 seems to be undefined but works
-      0x1f,
-      0x2F1,
-      0x20,
-      0x224, // 224 - 22f undefined
-      0x21,
-      0x22f,
-      0x22,
-      0x120,
-      0x23,
-      0x12f,
-      0x24,
-      0x130,
-      0x25,
-      0x13e}; // greater than 0x2ff key max doesn't show up as a button press
-
-  int translatetablelen = sizeof(translatetable) / sizeof(int);
-
-  // tell uinput which BTN events we will generate
-  for (int i = 0; i < translatetablelen; i += 2)
-    ioctl(fd, UI_SET_KEYBIT, translatetable[i + 1]);
-  for (int i = 0; i < translatetablelen; i += 2)
-    printf("%d => %d\n", translatetable[i], translatetable[i + 1]);
-
-  ioctl(fd, UI_SET_EVBIT, EV_ABS); // enable analog absolute position handling
-
-  //  setup_abs(fd, ABS_X,  -512, 512);
-  //  setup_abs(fd, ABS_Y,  -512, 512);
-  //  setup_abs(fd, ABS_Z,  0, 32767);
-
-  //  setup_abs(fd, ABS_X, 0, 127);
-  //  setup_abs(fd, ABS_Y, 0, 127);
-  //  setup_abs(fd, ABS_Z, 0, 127);
-
-  for (int i = 0; i <= ABS_MAX; i++) {
-    if (i != ABS_RESERVED) {
-      setup_abs(fd, i, 0, 127);
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: midi-to-joy </dev/midiX>\n");
+        return EXIT_FAILURE;
     }
-  }
 
-  struct uinput_setup setup = {.id =
-                                   {
-                                       .bustype = BUS_USB,
-                                       .vendor = 0x3,
-                                       .product = 0x3,
-                                       .version = 2,
-                                   },
-                               .name = "LaunchControl XL joystick"};
+    midi_fd = open(argv[1], O_RDWR | O_NONBLOCK);
 
-  if (ioctl(fd, UI_DEV_SETUP, &setup)) {
-    perror("UI_DEV_SETUP");
-    return 1;
-  }
-
-  if (ioctl(fd, UI_DEV_CREATE)) {
-    perror("UI_DEV_CREATE");
-    return 1;
-  }
-
-  struct input_event button_event;
-
-  unsigned char buffer[256];
-  while (1) {
-    int readval;
-
-    if (readval = read(midi_fd, &buffer, 3), readval != -1) {
-      printf("read: %x %x %x\n", buffer[0], buffer[1], buffer[2]);
-
-      if (buffer[0] >= 0x80 && buffer[0] <= 0x9f) { // note on/off
-        for (int i = 0; i < translatetablelen; i += 2)
-          if (buffer[1] == translatetable[i]) {
-
-            button_event.type = EV_KEY;
-            button_event.code = translatetable[i + 1];
-            button_event.value = (buffer[2] != 0) ? 1 : 0;
-            printf("readval=%d  ev type=%d  key in=%d  => button out=%d "
-                   "value=%d\n",
-                   readval, button_event.type, buffer[1], button_event.code,
-                   button_event.value);
-
-            if (write(fd, &button_event, sizeof button_event) < 0) {
-              perror("write");
-              return 1;
-            }
-
-            // send SYNC event
-            button_event.type = EV_SYN;
-            button_event.code = 0;
-            button_event.value = 0;
-
-            if (write(fd, &button_event, sizeof button_event) < 0) {
-              perror("write");
-              return 1;
-            }
-          }
-      } else if (buffer[0] >= 0b0 && buffer[0] <= 0xbf) { // CC
-        button_event.type = EV_ABS;
-        button_event.code =
-            (buffer[1] == 1) ? ABS_X
-            : (buffer[1] == 7)
-                ? ABS_Y
-                : 0; // my midi keyboard has 1 for volume, 7 for modulation
-        button_event.value = (buffer[2]);
-
-        printf("0xb0 readval=%d  ev type=%d  key in=%d  => button out=%d "
-               "value=%d\n",
-               readval, button_event.type, buffer[1], button_event.code,
-               button_event.value);
-
-        if (write(fd, &button_event, sizeof button_event) < 0) {
-          perror("write");
-          return 1;
-        }
-
-        // send SYNC event
-        button_event.type = EV_SYN;
-        button_event.code = 0;
-        button_event.value = 0;
-
-        if (write(fd, &button_event, sizeof button_event) < 0) {
-          perror("write");
-          return 1;
-        }
-      }
+    if (midi_fd < 0) {
+        perror("open /dev/midiX");
+        return EXIT_FAILURE;
     }
-    if (readval <= 0)
-      msleep(50); // sleep for a bit so we don't use all the cpu
-  }
 
-  close(midi_fd);
+    // init LaunchControl XL lights as "dim"
+    //unsigned char buf[3] = {0xb8, 0x00, 0x7d};
+    // init LaunchControl XL lights off
+    unsigned char buf[3] = { 0xb8, 0x00, 0x00 };
+    if (write(midi_fd, &buf, 3) < 0) {
+        perror("write");
+        exit(EXIT_FAILURE);
+    }
 
-  if (ioctl(fd, UI_DEV_DESTROY)) {
-    printf("UI_DEV_DESTROY");
-    return 1;
-  }
+    // sleep(1); // wait for a second
+    fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
 
-  close(fd);
+    if (fd < 0) {
+        perror("open /dev/uinput");
+        return EXIT_FAILURE;
+    }
 
-  return 0;
+    // enable button/key handling
+    ioctl(fd, UI_SET_EVBIT, EV_KEY);
+    // @see input-event-codes.h
+    // valid button codes are 0x100 - 0x151
+    // max. 64
+    for (int i = 0; i < 24; i++) {
+        printf("%x\n", btnCodes[i]);
+        ioctl(fd, UI_SET_KEYBIT, btnCodes[i]);
+    }
+
+
+    // enable analog absolute position handling
+    ioctl(fd, UI_SET_EVBIT, EV_ABS);
+    for (int i = 0; i < 32; i++) {
+        // @todo! 0 + 1 are mouse axis
+
+
+        //if (i != ABS_RESERVED) {
+        setupAbs(fd, i, 0, 127);
+        //}
+    }
+
+    struct uinput_setup setup = { .id =
+                                  {
+                                      .bustype = BUS_USB,
+                                      .vendor = 0x3,
+                                      .product = 0x3,
+                                      .version = 2,
+                                  },
+                                  .name = "LaunchControl XL joystick" };
+
+    if (ioctl(fd, UI_DEV_SETUP, &setup)) {
+        perror("UI_DEV_SETUP");
+        return 1;
+    }
+
+    if (ioctl(fd, UI_DEV_CREATE)) {
+        perror("UI_DEV_CREATE");
+        return 1;
+    }
+
+    struct input_event input_event;
+
+    unsigned char buffer[256];
+    while (1) {
+        int readval;
+
+        if (readval = read(midi_fd, &buffer, 3), readval != -1) {
+            printf("read: %x %x(%d) %x\n", buffer[0], buffer[1], buffer[1], buffer[2]);
+
+            int channel = buffer[0] & 0x0f;
+            int bank = channel - 8;
+            bool isNote = (buffer[0] & 0xf0) == 0x80 || (buffer[0] & 0xf0) == 0x90;
+            bool isCC = (buffer[0] & 0xf0) == 0xb0;
+            // @todo: 0xf0 would be SysEx and the message would contain 7 blocks
+
+            if (isNote) {
+                bool isNoteOn = buffer[2] != 0;
+                int note = buffer[1];
+                int btn = -1;
+                if (note >= 41 && note <= 44) {
+                    btn = note - 41 + bank * 24;
+                } else if (note >= 57 && note <= 60) {
+                    btn = note - 53 + bank * 24;
+                } else if (note >= 73 && note <= 76) {
+                    btn = note - 65 + bank * 24;
+                } else if (note >= 89 && note <= 92) {
+                    btn = note - 77 + bank * 24;
+                } else if (note >= 105 && note <= 108) {
+                    btn = note - 85 + bank * 24;
+                }
+
+                printf("note=%d channel=%d on=%d => btn=%d\n", note, channel, isNoteOn, btn);
+                if (btn != -1) {
+                    input_event.type = EV_KEY;
+                    // @see input-event-codes.h
+                    // valid button codes are 0x100 - 0x151
+                    input_event.code = btnCodes[btn];
+                    input_event.value = isNoteOn;
+
+                    sendEvent(input_event);
+                }
+            } else if (isCC) {
+                int cc = buffer[1];
+                int velocity = buffer[2];
+
+                int axis = -1;
+                if (cc >= 13 && cc <= 20) {
+                    axis = cc - 13 + bank * 32;
+                } else if (cc >= 29 && cc <= 36) {
+                    axis = cc - 21 + bank * 32;
+                } else if (cc >= 49 && cc <= 56) {
+                    axis = cc - 33 + bank * 32;
+                } else if (cc >= 77 && cc <= 84) {
+                    axis = cc - 53 + bank * 32;
+                }
+
+                printf("CC=%d channel=%d vel=%d => axis=%d\n", cc, channel, velocity, axis);
+                if (axis != -1) {
+                    input_event.type = EV_ABS;
+                    // @see input-event-codes.h
+                    // valid axis codes are 0 - ABS_MAX (but not ABS_RESERVED - using it anyways, seems to be ok...)
+                    input_event.code = axis;
+                    input_event.value = velocity;
+
+                    sendEvent(input_event);
+                }
+            }
+        }
+        if (readval <= 0) {
+            msleep(50); // sleep for a bit so we don't use all the cpu
+        }
+    }
+
+    close(midi_fd);
+
+    if (ioctl(fd, UI_DEV_DESTROY)) {
+        printf("UI_DEV_DESTROY");
+        return 1;
+    }
+
+    close(fd);
+
+    return 0;
 }
 
 // enable and configure an absolute "position" analog channel
+static void setupAbs(int fd, unsigned short chan, int min, int max) {
+    if (ioctl(fd, UI_SET_ABSBIT, chan)) {
+        perror("UI_SET_ABSBIT");
+    }
 
-static void setup_abs(int fd, unsigned short chan, int min, int max) {
-  if (ioctl(fd, UI_SET_ABSBIT, chan))
-    perror("UI_SET_ABSBIT");
+    struct uinput_abs_setup s = {
+        .code = chan,
+        .absinfo = { .minimum = min, .maximum = max },
+    };
 
-  struct uinput_abs_setup s = {
-      .code = chan,
-      .absinfo = {.minimum = min, .maximum = max},
-  };
+    if (ioctl(fd, UI_ABS_SETUP, &s)) {
+        perror("UI_ABS_SETUP");
+    }
+}
 
-  if (ioctl(fd, UI_ABS_SETUP, &s))
-    perror("UI_ABS_SETUP");
+static void sendEvent(struct input_event input_event) {
+    if (write(fd, &input_event, sizeof input_event) < 0) {
+        perror("write");
+        exit(EXIT_FAILURE);
+    }
+
+    input_event.type = EV_SYN;
+    input_event.code = 0;
+    input_event.value = 0;
+
+    if (write(fd, &input_event, sizeof input_event) < 0) {
+        perror("write SYN");
+        exit(EXIT_FAILURE);
+    }
 }
