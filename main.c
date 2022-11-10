@@ -43,7 +43,7 @@ const int btnCodes[] = {
     BTN_7,
     BTN_8,
     BTN_9,
-    BTN_LEFT,
+//    BTN_LEFT,
     BTN_DEAD,
     BTN_SOUTH,
     BTN_EAST,
@@ -97,12 +97,49 @@ const int btnCodes[] = {
     //    BTN_TOOL_TRIPLETAP,
 };
 
+// @see input-event-codes.h
+const int axisCodes[32] = {
+    0x02,
+    0x03,
+    0x04,
+    0x05,
+    0x06,
+    0x07,
+    0x08,
+    0x09,
+    0x0a,
+    0x0b,
+    0x0c,
+    0x0d,
+    0x0e,
+    0x0f,
+    0x1d,
+    0x1e,
+    0x1f,
+    0x21,
+    0x22,
+    0x23,
+    0x24,
+    0x25,
+    0x26,
+    0x27,
+    0x28,
+    0x29,
+    0x2a,
+    0x2b,
+    0x2c,
+    0x2d,
+    0x3e,
+    0x3f
+};
+
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: midi-to-joy </dev/midiX>\n");
         return EXIT_FAILURE;
     }
 
+    printf("opening %s\n", argv[1]);
     midi_fd = open(argv[1], O_RDWR | O_NONBLOCK);
 
     if (midi_fd < 0) {
@@ -132,22 +169,22 @@ int main(int argc, char* argv[]) {
     // @see input-event-codes.h
     // valid button codes are 0x100 - 0x151
     // max. 64
+    printf("Setting up btns... ");
     for (int i = 0; i < 24; i++) {
-        printf("%x\n", btnCodes[i]);
+        printf("%x ", btnCodes[i]);
         ioctl(fd, UI_SET_KEYBIT, btnCodes[i]);
     }
-
+    printf("\n");
 
     // enable analog absolute position handling
     ioctl(fd, UI_SET_EVBIT, EV_ABS);
+    // only 24 recognized by X-Plane?
+    printf("Setting up axii... ");
     for (int i = 0; i < 32; i++) {
-        // @todo! 0 + 1 are mouse axis
-
-
-        //if (i != ABS_RESERVED) {
-        setupAbs(fd, i, 0, 127);
-        //}
+        printf("%x ", axisCodes[i]);
+        setupAbs(fd, axisCodes[i], 0, 127);
     }
+    printf("\n");
 
     struct uinput_setup setup = { .id =
                                   {
@@ -214,22 +251,21 @@ int main(int argc, char* argv[]) {
                 int velocity = buffer[2];
 
                 int axis = -1;
-                if (cc >= 13 && cc <= 20) {
+                if (cc >= 13 && cc <= 20) { // axis 24-31
+                    axis = cc + 11 + bank * 32;
+                } else if (cc >= 29 && cc <= 36) { // axis 16-23
                     axis = cc - 13 + bank * 32;
-                } else if (cc >= 29 && cc <= 36) {
-                    axis = cc - 21 + bank * 32;
-                } else if (cc >= 49 && cc <= 56) {
-                    axis = cc - 33 + bank * 32;
-                } else if (cc >= 77 && cc <= 84) {
-                    axis = cc - 53 + bank * 32;
+                } else if (cc >= 49 && cc <= 56) { // axis 8-15
+                    axis = cc - 41 + bank * 32;
+                } else if (cc >= 77 && cc <= 84) { // axis 0-7
+                    axis = cc - 77 + bank * 32;
                 }
 
                 printf("CC=%d channel=%d vel=%d => axis=%d\n", cc, channel, velocity, axis);
                 if (axis != -1) {
                     input_event.type = EV_ABS;
                     // @see input-event-codes.h
-                    // valid axis codes are 0 - ABS_MAX (but not ABS_RESERVED - using it anyways, seems to be ok...)
-                    input_event.code = axis;
+                    input_event.code = axisCodes[axis];
                     input_event.value = velocity;
 
                     sendEvent(input_event);
@@ -270,11 +306,13 @@ static void setupAbs(int fd, unsigned short chan, int min, int max) {
 }
 
 static void sendEvent(struct input_event input_event) {
+    // send value
     if (write(fd, &input_event, sizeof input_event) < 0) {
         perror("write");
         exit(EXIT_FAILURE);
     }
 
+    // send SYN
     input_event.type = EV_SYN;
     input_event.code = 0;
     input_event.value = 0;

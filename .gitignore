@@ -61,6 +61,9 @@ Thumbs.db
 *.vcxproj
 *vcxproj.*
 
+# QtCreator
+CMakeLists.txt.user
+
 # MinGW generated files
 *.Debug
 *.Release
