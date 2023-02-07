@@ -12,3 +12,10 @@ Launchcontrol XL.
 ./midi-to-joy </dev/midiX>
   /dev/midiX    The port where the LaunchControl XL is connected
 ```
+
+## Build
+
+```
+mkdir -p build/ && cd build/
+cmake .. && make
+```
