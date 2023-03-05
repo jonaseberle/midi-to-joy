@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <bsd/string.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 #define msleep(ms) usleep((ms) * 1000)
 
@@ -18,15 +21,100 @@
 // https://blog.marekkraus.sk/c/linuxs-uinput-usage-tutorial-virtual-gamepad/
 //
 
-static int fd, midi_fd;
+static int fd, fd2, midi_fd;
+const int btnCodes[];
+const int axisCodes[32];
 
 static void setupAbs(int fd, unsigned short chan, int min, int max);
-static void sendEvent(struct input_event input_event);
 
-typedef struct {
-    int in;
-    int out;
-} map;
+static void setupJoystick(int fd, char *name, int nButtons, int nAxiis) {
+    // enable button/key handling
+    ioctl(fd, UI_SET_EVBIT, EV_KEY);
+    // @see input-event-codes.h
+    // valid button codes are 0x100 - 0x151
+    // max. 64
+    printf("Setting up btns... ");
+    for (int i = 0; i < nButtons; i++) {
+        printf("%x ", btnCodes[i]);
+        ioctl(fd, UI_SET_KEYBIT, btnCodes[i]);
+    }
+    printf("\n");
+
+    // enable analog absolute position handling
+    ioctl(fd, UI_SET_EVBIT, EV_ABS);
+    // only 24 recognized by X-Plane?
+    printf("Setting up axii... ");
+    for (int i = 0; i < nAxiis; i++) {
+        printf("%x ", axisCodes[i]);
+        setupAbs(fd, axisCodes[i], 0, 127);
+    }
+    printf("\n");
+
+    struct uinput_setup setup = {
+        .id = {
+            .bustype = BUS_VIRTUAL,
+            .vendor = 0x3,
+            .product = 0x3,
+            .version = 2,
+        }
+    };
+    strlcpy(setup.name, name, UINPUT_MAX_NAME_SIZE);
+
+    if (ioctl(fd, UI_DEV_SETUP, &setup)) {
+        perror("UI_DEV_SETUP");
+        exit(1);
+    }
+
+    if (ioctl(fd, UI_DEV_CREATE)) {
+        perror("UI_DEV_CREATE");
+        exit(1);
+    }
+}
+
+static void setupAbs(int fd, unsigned short chan, int min, int max) {
+    // enable and configure an absolute "position" analog channel
+    if (ioctl(fd, UI_SET_ABSBIT, chan)) {
+        perror("UI_SET_ABSBIT");
+    }
+
+    struct uinput_abs_setup s = {
+        .code = chan,
+        .absinfo = { .minimum = min, .maximum = max },
+    };
+
+    if (ioctl(fd, UI_ABS_SETUP, &s)) {
+        perror("UI_ABS_SETUP");
+    }
+}
+
+static void sendEvent(int fd, struct input_event input_event) {
+    // send value
+    if (write(fd, &input_event, sizeof input_event) < 0) {
+        perror("write");
+        exit(EXIT_FAILURE);
+    }
+
+    // send SYN
+    input_event.type = EV_SYN;
+    input_event.code = 0;
+    input_event.value = 0;
+
+    if (write(fd, &input_event, sizeof input_event) < 0) {
+        perror("write SYN");
+        exit(EXIT_FAILURE);
+    }
+}
+
+static void setupLaunchControl() {
+    // init LaunchControl XL lights as "dim"
+    //unsigned char buf[3] = {0xb8, 0x00, 0x7d};
+    // init LaunchControl XL lights off
+    unsigned char buf[3] = { 0xb8, 0x00, 0x00 };
+    if (write(midi_fd, &buf, 3) < 0) {
+        perror("write");
+        exit(EXIT_FAILURE);
+    }
+}
 
 const int btnCodes[] = {
 //    BTN_DPAD_UP,
@@ -135,7 +223,7 @@ const int axisCodes[32] = {
 
 int main(int argc, char* argv[]) {
     if (argc != 2) {
-        fprintf(stderr, "Usage: midi-to-joy </dev/midiX>\n");
+        fprintf(stderr, "Usage: midi-to-joy </dev/snd/midiC?D?>\n");
         return EXIT_FAILURE;
     }
 
@@ -147,63 +235,21 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    // init LaunchControl XL lights as "dim"
-    //unsigned char buf[3] = {0xb8, 0x00, 0x7d};
-    // init LaunchControl XL lights off
-    unsigned char buf[3] = { 0xb8, 0x00, 0x00 };
-    if (write(midi_fd, &buf, 3) < 0) {
-        perror("write");
-        exit(EXIT_FAILURE);
-    }
+    setupLaunchControl();
 
-    // sleep(1); // wait for a second
     fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-
     if (fd < 0) {
         perror("open /dev/uinput");
         return EXIT_FAILURE;
     }
+    setupJoystick(fd, "LaunchControl XL joystick 1", 32, 8);
 
-    // enable button/key handling
-    ioctl(fd, UI_SET_EVBIT, EV_KEY);
-    // @see input-event-codes.h
-    // valid button codes are 0x100 - 0x151
-    // max. 64
-    printf("Setting up btns... ");
-    for (int i = 0; i < 24; i++) {
-        printf("%x ", btnCodes[i]);
-        ioctl(fd, UI_SET_KEYBIT, btnCodes[i]);
+    fd2 = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+    if (fd2 < 0) {
+        perror("open /dev/uinput");
+        return EXIT_FAILURE;
     }
-    printf("\n");
-
-    // enable analog absolute position handling
-    ioctl(fd, UI_SET_EVBIT, EV_ABS);
-    // only 24 recognized by X-Plane?
-    printf("Setting up axii... ");
-    for (int i = 0; i < 32; i++) {
-        printf("%x ", axisCodes[i]);
-        setupAbs(fd, axisCodes[i], 0, 127);
-    }
-    printf("\n");
-
-    struct uinput_setup setup = { .id =
-                                  {
-                                      .bustype = BUS_USB,
-                                      .vendor = 0x3,
-                                      .product = 0x3,
-                                      .version = 2,
-                                  },
-                                  .name = "LaunchControl XL joystick" };
-
-    if (ioctl(fd, UI_DEV_SETUP, &setup)) {
-        perror("UI_DEV_SETUP");
-        return 1;
-    }
-
-    if (ioctl(fd, UI_DEV_CREATE)) {
-        perror("UI_DEV_CREATE");
-        return 1;
-    }
+    setupJoystick(fd2, "LaunchControl XL joystick 2", 0, 24);
 
     struct input_event input_event;
 
@@ -244,31 +290,39 @@ int main(int argc, char* argv[]) {
                     input_event.code = btnCodes[btn];
                     input_event.value = isNoteOn;
 
-                    sendEvent(input_event);
+                    sendEvent(fd, input_event);
                 }
             } else if (isCC) {
                 int cc = buffer[1];
                 int velocity = buffer[2];
 
                 int axis = -1;
+                int joystick = -1;
                 if (cc >= 13 && cc <= 20) { // axis 24-31
-                    axis = cc + 11 + bank * 32;
+                    axis = cc + 3 + bank * 32;
+                    joystick = 2;
                 } else if (cc >= 29 && cc <= 36) { // axis 16-23
-                    axis = cc - 13 + bank * 32;
+                    axis = cc - 21 + bank * 32;
+                    joystick = 2;
                 } else if (cc >= 49 && cc <= 56) { // axis 8-15
-                    axis = cc - 41 + bank * 32;
+                    axis = cc - 49 + bank * 32;
+                    joystick = 2;
                 } else if (cc >= 77 && cc <= 84) { // axis 0-7
                     axis = cc - 77 + bank * 32;
+                    joystick = 1;
                 }
 
-                printf("CC=%d channel=%d vel=%d => axis=%d\n", cc, channel, velocity, axis);
-                if (axis != -1) {
+                printf("CC=%d channel=%d vel=%d => joystick=%d axis=%d\n", cc, channel, velocity, joystick, axis);
+                if (axis != -1 && joystick != -1) {
                     input_event.type = EV_ABS;
                     // @see input-event-codes.h
                     input_event.code = axisCodes[axis];
                     input_event.value = velocity;
 
-                    sendEvent(input_event);
+                    sendEvent(
+                        joystick == 1? fd: fd2,
+                        input_event
+                    );
                 }
             }
         }
@@ -287,38 +341,4 @@ int main(int argc, char* argv[]) {
     close(fd);
 
     return 0;
-}
-
-// enable and configure an absolute "position" analog channel
-static void setupAbs(int fd, unsigned short chan, int min, int max) {
-    if (ioctl(fd, UI_SET_ABSBIT, chan)) {
-        perror("UI_SET_ABSBIT");
-    }
-
-    struct uinput_abs_setup s = {
-        .code = chan,
-        .absinfo = { .minimum = min, .maximum = max },
-    };
-
-    if (ioctl(fd, UI_ABS_SETUP, &s)) {
-        perror("UI_ABS_SETUP");
-    }
-}
-
-static void sendEvent(struct input_event input_event) {
-    // send value
-    if (write(fd, &input_event, sizeof input_event) < 0) {
-        perror("write");
-        exit(EXIT_FAILURE);
-    }
-
-    // send SYN
-    input_event.type = EV_SYN;
-    input_event.code = 0;
-    input_event.value = 0;
-
-    if (write(fd, &input_event, sizeof input_event) < 0) {
-        perror("write SYN");
-        exit(EXIT_FAILURE);
-    }
 }
