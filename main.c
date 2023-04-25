@@ -62,12 +62,12 @@ static void setupJoystick(int fd, char *name, int nButtons, int nAxiis) {
 
     if (ioctl(fd, UI_DEV_SETUP, &setup)) {
         perror("UI_DEV_SETUP");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     if (ioctl(fd, UI_DEV_CREATE)) {
         perror("UI_DEV_CREATE");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -231,7 +231,7 @@ int main(int argc, char* argv[]) {
     midi_fd = open(argv[1], O_RDWR | O_NONBLOCK);
 
     if (midi_fd < 0) {
-        perror("open /dev/midiX");
+        perror("open midi_fd");
         return EXIT_FAILURE;
     }
 
